@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 import random
 import threading
 import requests
+import ssl
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -123,13 +124,13 @@ def process_image(image_path, timeout=300):
             if os.path.exists(image_path):
                 os.remove(image_path)
             raise
-        except (requests.exceptions.RequestException, TimeoutError) as e:
+        except (requests.exceptions.RequestException, TimeoutError, ssl.SSLError) as e:
             if is_rate_limit_error(e):
                 sleep_time = exponential_backoff(attempt)
                 logging.warning(f"Rate limit reached. Retrying {image_path} in {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
             else:
-                logging.error(f"Error processing {image_path}: {e}")
+                logging.error(f"Error processing {image_path}: {e}", exc_info=True)
                 if attempt < max_retries - 1:
                     sleep_time = exponential_backoff(attempt)
                     logging.info(f"Retrying {image_path} in {sleep_time:.2f} seconds...")
@@ -138,7 +139,7 @@ def process_image(image_path, timeout=300):
                     logging.error(f"Failed to process {image_path} after {max_retries} attempts.")
                     return None
         except Exception as e:
-            logging.error(f"Unexpected error processing {image_path}: {e}")
+            logging.error(f"Unexpected error processing {image_path}: {e}", exc_info=True)
             if attempt < max_retries - 1:
                 sleep_time = exponential_backoff(attempt)
                 logging.info(f"Retrying {image_path} in {sleep_time:.2f} seconds...")
