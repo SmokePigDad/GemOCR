@@ -120,13 +120,11 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         total_images = len(image_paths)
 
         # Step 2: Process images and extract text
-        extracted_texts = []
-        for image_path in tqdm.tqdm(image_paths, desc="Processing Images", unit="image", leave=False):
-            try:
-                text = api_call_with_retry(lambda: process_image(image_path))
-                extracted_texts.append(text)
-            except Exception as e:
-                print(f"Error processing {image_path}: {str(e)}")
+        # Use a ThreadPoolExecutor to process images concurrently
+        with ThreadPoolExecutor() as executor:
+            results = list(tqdm.tqdm(executor.map(api_call_with_retry, [lambda: process_image(path) for path in image_paths]),
+                                      total=len(image_paths), desc="Processing Images", unit="image", leave=False))
+        extracted_texts = [text for text in results if text is not None] # Filter out None results
 
         # Step 3: Compile Markdown
         markdown_content = compile_markdown(extracted_texts)
@@ -154,6 +152,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
 
 import shutil
 import tqdm
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 def main():
     input_folder = "Input"
