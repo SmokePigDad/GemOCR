@@ -158,7 +158,6 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         print(f"An error occurred: {str(e)}")
 
     finally:
-    finally:
         # Clean up temporary images
         try:
             if os.path.exists(temp_folder): # Check if the folder exists before attempting to remove it
