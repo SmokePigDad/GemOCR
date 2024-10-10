@@ -44,10 +44,20 @@ def convert_pdf_to_images(pdf_path, output_folder):
 
 def process_image(image_path):
     """Process a single image using Gemini API."""
-    myfile = genai.upload_file(image_path)
-    model = genai.GenerativeModel("gemini-1.5-flash-002")
-    prompt = "Extract and transcribe all text from this image, preserving formatting where possible."
-    response = model.generate_content([myfile, prompt])    
+    image_path = kwargs.get("image_path") # Retrieve image_path from kwargs
+    if not image_path:
+        raise ValueError("image_path must be provided as a keyword argument.")
+
+    try:
+        myfile = genai.upload_file(image_path)
+        model = genai.GenerativeModel("gemini-1.5-flash-002")
+        prompt = "Extract and transcribe all text from this image, preserving formatting where possible."
+        response = model.generate_content([myfile, prompt])
+    except Exception as e:
+        print(f"Error processing {image_path}: {e}")
+        if os.path.exists(image_path):
+            os.remove(image_path) # Clean up on error
+        raise # Re-raise the exception after cleanup
     
     # Check if the response has a 'text' attribute
     if hasattr(response, 'text') and response.text: # Check for text and if it's not empty
@@ -76,19 +86,17 @@ def api_call_with_retry(func, max_retries=3):
             return func()
         except Exception as e:
             if attempt == max_retries - 1:
+                print(f"Max retries reached for {func.__name__}. Raising exception.") # More informative logging
                 raise
+            print(f"Retrying {func.__name__} after exception: {e}") # Log retry attempts
             time.sleep(2 ** attempt * 0.5 + (attempt * 0.1)) # Add some jitter to avoid synchronized retries
 
-def api_call_with_retry(func, max_retries=5, retry_exceptions=(Exception,)): # Increase max retries and specify retry exceptions
+def api_call_with_retry(func, max_retries=5, retry_exceptions=(Exception,), *args, **kwargs): # Add *args and **kwargs
     """Retry API call with exponential backoff and jitter."""
-    results = []
     for path in image_paths:
-        try:
-            text = api_call_with_retry(lambda: process_image(path), max_retries=5, retry_exceptions=(Exception,)) # Pass retry parameters
-            if text: # Only append if text was extracted
-                results.append(text)
-        except Exception as e:
-            print(f"Error processing {path}: {str(e)}")
+        text = api_call_with_retry(process_image, max_retries=5, retry_exceptions=(Exception,), image_path=path) # Pass path as keyword argument
+        if text: # Only append if text was extracted
+            results.append(text)
     return results
 
 def compile_markdown(extracted_texts):
