@@ -59,7 +59,7 @@ def rate_limit():
         last_request_time = time.time()
 
 def exponential_backoff(attempt):
-    return min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
+    return min(600, (2 ** attempt) + (random.randint(0, 1000) / 1000))
 
 def is_rate_limit_error(e):
     return isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429
@@ -85,12 +85,12 @@ def convert_pdf_to_images(pdf_path, output_folder):
     return image_paths
 
 
-def process_image(image_path, timeout=300):
-    """Process a single image using Gemini API with retry mechanism and timeout."""
+def process_image(image_path):
+    """Process a single image using Gemini API with retry mechanism."""
     if not image_path:
         raise ValueError("image_path must be provided as a keyword argument.")
 
-    max_retries = 5
+    max_retries = 10
     for attempt in range(max_retries):
         try:
             rate_limit()
@@ -98,7 +98,7 @@ def process_image(image_path, timeout=300):
             myfile = genai.upload_file(image_path)
             model = genai.GenerativeModel("gemini-1.5-flash-002")
             prompt = "Extract and transcribe all text from this image, preserving formatting where possible."
-            response = model.generate_content([myfile, prompt], timeout=timeout)
+            response = model.generate_content([myfile, prompt])
             if hasattr(response, 'text') and response.text:
                 logging.info(f"Successfully processed image: {image_path}")
                 return response.text
@@ -129,6 +129,15 @@ def process_image(image_path, timeout=300):
                 sleep_time = exponential_backoff(attempt)
                 logging.warning(f"Rate limit reached. Retrying {image_path} in {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
+            elif isinstance(e, ssl.SSLError):
+                logging.error(f"SSL error processing {image_path}: {e}", exc_info=True)
+                if attempt < max_retries - 1:
+                    sleep_time = exponential_backoff(attempt)
+                    logging.info(f"Retrying {image_path} in {sleep_time:.2f} seconds...")
+                    time.sleep(sleep_time)
+                else:
+                    logging.error(f"Failed to process {image_path} after {max_retries} attempts due to SSL errors.")
+                    return None
             else:
                 logging.error(f"Error processing {image_path}: {e}", exc_info=True)
                 if attempt < max_retries - 1:
