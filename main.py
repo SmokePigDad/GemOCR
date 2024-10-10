@@ -218,12 +218,15 @@ def main():
                     create_pdf_with_text(extracted_texts, output_pdf_path)  # create PDF in Output folder now that extracted_texts is available
                 processed_pdf_path = os.path.join(processed_folder, filename)
                 shutil.move(pdf_path, processed_pdf_path)
-
+                logging.info(f"Successfully processed {filename}")
 
             except Exception as e:
-                print(f"An error occurred processing {filename}: {str(e)}")
+                logging.exception(f"An error occurred processing {filename}")
+                print(f"An error occurred processing {filename}. Check the log file for details.")
             finally:
                 pbar.update(1)
+
+    logging.info("Processing completed. Check the log file for details.")
 
 
 if __name__ == "__main__":
