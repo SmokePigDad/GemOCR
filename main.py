@@ -121,16 +121,12 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
 
         # Step 2: Process images and extract text
         extracted_texts = []
-        with tqdm.tqdm(total=total_images, desc="Processing Images", unit="image", leave=False) as image_pbar:
-            for image_path in image_paths:
-                try:
-                    text = api_call_with_retry(lambda: process_image(image_path))
-                    extracted_texts.append(text)
-                except Exception as e:
-                    print(f"Error processing {image_path}: {str(e)}")
-                finally:
-                    image_pbar.update(1)
-                    pbar.set_postfix({"image": image_pbar.n}) # Update main bar with image progress
+        for image_path in tqdm.tqdm(image_paths, desc="Processing Images", unit="image", leave=False):
+            try:
+                text = api_call_with_retry(lambda: process_image(image_path))
+                extracted_texts.append(text)
+            except Exception as e:
+                print(f"Error processing {image_path}: {str(e)}")
 
         # Step 3: Compile Markdown
         markdown_content = compile_markdown(extracted_texts)
