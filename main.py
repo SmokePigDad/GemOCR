@@ -94,15 +94,26 @@ def create_pdf_with_text(texts, output_pdf_path):
 
     doc.build(story)
 
-def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path):
+def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar):
     """Convert PDF to Markdown and create a new PDF with extracted text."""
     try:
         # Step 1: Convert PDF to images
         temp_folder = 'temp_images'
         image_paths = convert_pdf_to_images(pdf_path, temp_folder)
+        total_images = len(image_paths)
 
         # Step 2: Process images and extract text
-        extracted_texts = process_multiple_images(image_paths)
+        extracted_texts = []
+        with tqdm.tqdm(total=total_images, desc="Processing Images", unit="image", leave=False) as image_pbar:
+            for image_path in image_paths:
+                try:
+                    text = api_call_with_retry(lambda: process_image(image_path))
+                    extracted_texts.append(text)
+                except Exception as e:
+                    print(f"Error processing {image_path}: {str(e)}")
+                finally:
+                    image_pbar.update(1)
+                    pbar.set_postfix({"image": image_pbar.n}) # Update main bar with image progress
 
         # Step 3: Compile Markdown
         markdown_content = compile_markdown(extracted_texts)
@@ -147,6 +158,7 @@ def gui_pdf_to_markdown():
     pdf_to_markdown_and_pdf(pdf_path, str(output_markdown_path))
 
 import shutil
+import tqdm
 
 def main():
     input_folder = "Input"
@@ -156,20 +168,24 @@ def main():
     os.makedirs(input_folder, exist_ok=True)
     os.makedirs(processed_folder, exist_ok=True)
 
-    for filename in os.listdir(input_folder):
-        if filename.endswith(".pdf"):
+    pdf_files = [f for f in os.listdir(input_folder) if f.endswith(".pdf")]
+    total_files = len(pdf_files)
+
+    with tqdm.tqdm(total=total_files, desc="Processing PDFs", unit="file") as pbar:
+        for filename in pdf_files:
             pdf_path = os.path.join(input_folder, filename)
-            output_markdown_path = os.path.join(input_folder, filename[:-4] + ".md")  # Use input folder for .md
+            output_markdown_path = os.path.join(input_folder, filename[:-4] + ".md")
 
             try:
-                pdf_to_markdown_and_pdf(pdf_path, output_markdown_path)
+                pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar)  # Pass pbar to update progress
 
-                # Move processed PDF to the processed folder
                 processed_pdf_path = os.path.join(processed_folder, filename)
                 shutil.move(pdf_path, processed_pdf_path)
 
             except Exception as e:
                 print(f"An error occurred processing {filename}: {str(e)}")
+            finally:
+                pbar.update(1)
 
 
 if __name__ == "__main__":
