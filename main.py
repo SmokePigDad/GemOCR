@@ -35,7 +35,7 @@ else:
     raise ValueError("GOOGLE_API_KEY not found in .env file or environment variables.")
 
 # Rate limiting parameters
-requests_per_minute = 10  # Reduced from 15 to be more conservative
+requests_per_minute = 5  # Further reduced to be more conservative
 request_log = []  # Log of requests and their timestamps
 
 def rate_limit():
@@ -49,6 +49,9 @@ def rate_limit():
         time.sleep(sleep_time)
     request_log.append(current_time)
     logging.debug(f"Request made at {current_time}. Total requests in last minute: {len(request_log)}")
+
+def exponential_backoff(attempt):
+    return min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
 
 
 def convert_pdf_to_images(pdf_path, output_folder):
@@ -71,9 +74,8 @@ def process_image(image_path):
     if not image_path:
         raise ValueError("image_path must be provided as a keyword argument.")
 
-    max_retries = 3
-    retries = 0
-    while retries < max_retries:
+    max_retries = 5
+    for attempt in range(max_retries):
         rate_limit()
         try:
             logging.info(f"Processing image: {image_path}")
@@ -90,7 +92,7 @@ def process_image(image_path):
                     logging.info(f"Successfully processed image: {image_path}")
                     return extracted_text
                 else:
-                    logging.error(f"No text extracted from image {image_path}. Response: {response}")
+                    logging.warning(f"No text extracted from image {image_path}. Response: {response}")
                     return None
             else:
                 error_message = f"Unexpected response format from Gemini API: {response}"
@@ -108,17 +110,14 @@ def process_image(image_path):
             raise
         except Exception as e:
             logging.error(f"Error processing {image_path}: {e}")
-            if os.path.exists(image_path):
-                os.remove(image_path)
-            if retries < max_retries - 1:
-                sleep_time = 60  # Wait for 60 seconds before retrying
-                logging.info(f"Retrying {image_path} in {sleep_time} seconds...")
+            if attempt < max_retries - 1:
+                sleep_time = exponential_backoff(attempt)
+                logging.info(f"Retrying {image_path} in {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
-                retries += 1
-                continue
-            raise  # Re-raise the error if max retries reached
+            else:
+                logging.error(f"Failed to process {image_path} after {max_retries} attempts.")
+                return None
 
-    logging.error(f"Failed to process {image_path} after multiple retries.")
     return None
 
 
@@ -152,22 +151,13 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         # Step 2: Process images and extract text
         extracted_texts = []
         if thread_count is None:
-            thread_count = min(os.cpu_count() or 1, 4)  # Default to number of CPUs or 1 if not available, max 4
+            thread_count = min(os.cpu_count() or 1, 2)  # Reduced max threads to 2
 
-        try:
-            with ProcessPoolExecutor(max_workers=thread_count) as executor:
-                futures = [executor.submit(process_image, image_path) for image_path in image_paths]
-                for future in tqdm.tqdm(as_completed(futures), total=len(futures), desc="Processing Images", unit="image", leave=False):
-                    result = future.result()
-                    if result:
-                        extracted_texts.append(result)
-        except Exception as e:
-            logging.error(f"Error in concurrent processing: {e}. Falling back to sequential processing.")
-            extracted_texts = []
-            for image_path in tqdm.tqdm(image_paths, desc="Processing Images", unit="image", leave=False):
-                result = process_image(image_path)
-                if result:
-                    extracted_texts.append(result)
+        for image_path in tqdm.tqdm(image_paths, desc="Processing Images", unit="image", leave=False):
+            result = process_image(image_path)
+            if result:
+                extracted_texts.append(result)
+            pbar.update(1 / total_images)  # Update progress bar
 
         # Step 3: Compile Markdown
         markdown_content = compile_markdown(extracted_texts)
