@@ -13,7 +13,7 @@ from reportlab.lib.pagesizes import letter
 from dotenv import load_dotenv
 import shutil
 import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
@@ -80,8 +80,8 @@ def convert_pdf_to_images(pdf_path, output_folder):
     return image_paths
 
 
-def process_image(image_path):
-    """Process a single image using Gemini API with retry mechanism."""
+def process_image(image_path, timeout=300):
+    """Process a single image using Gemini API with retry mechanism and timeout."""
     if not image_path:
         raise ValueError("image_path must be provided as a keyword argument.")
 
@@ -93,7 +93,7 @@ def process_image(image_path):
             myfile = genai.upload_file(image_path)
             model = genai.GenerativeModel("gemini-1.5-flash-002")
             prompt = "Extract and transcribe all text from this image, preserving formatting where possible."
-            response = model.generate_content([myfile, prompt])
+            response = model.generate_content([myfile, prompt], timeout=timeout)
             if hasattr(response, 'text') and response.text:
                 logging.info(f"Successfully processed image: {image_path}")
                 return response.text
@@ -119,7 +119,7 @@ def process_image(image_path):
             if os.path.exists(image_path):
                 os.remove(image_path)
             raise
-        except requests.exceptions.RequestException as e:
+        except (requests.exceptions.RequestException, TimeoutError) as e:
             if is_rate_limit_error(e):
                 sleep_time = exponential_backoff(attempt)
                 logging.warning(f"Rate limit reached. Retrying {image_path} in {sleep_time:.2f} seconds...")
@@ -166,9 +166,9 @@ def create_pdf_with_text(texts, output_pdf_path):
 
 def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar):
     """Convert PDF to Markdown and create a new PDF with extracted text."""
+    temp_folder = 'temp_images'
     try:
         # Step 1: Convert PDF to images
-        temp_folder = 'temp_images'
         image_paths = convert_pdf_to_images(pdf_path, temp_folder)
         total_images = len(image_paths)
         logging.info(f"Converting PDF {pdf_path} to {total_images} images")
@@ -178,10 +178,19 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
             futures = [executor.submit(process_image, image_path) for image_path in image_paths]
             extracted_texts = []
             for future in tqdm.tqdm(as_completed(futures), total=total_images, desc="Processing Images", unit="image", leave=False):
-                result = future.result()
-                if result:
-                    extracted_texts.append(result)
-                pbar.update(1 / total_images)  # Update progress bar
+                try:
+                    result = future.result(timeout=360)  # 6 minutes timeout
+                    if result:
+                        extracted_texts.append(result)
+                    pbar.update(1 / total_images)  # Update progress bar
+                except TimeoutError:
+                    logging.error(f"Timeout occurred while processing an image.")
+                except Exception as e:
+                    logging.error(f"Error processing an image: {str(e)}")
+
+        if not extracted_texts:
+            logging.error("No text was extracted from any of the images.")
+            return None
 
         # Step 3: Compile Markdown
         markdown_content = compile_markdown(extracted_texts)
@@ -197,13 +206,13 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         return extracted_texts
 
     except Exception as e:
-        logging.error(f"An error occurred: {str(e)}")
-        return None  # Return None if an error occurs
+        logging.error(f"An error occurred during PDF processing: {str(e)}")
+        return None
 
     finally:
         # Clean up temporary images
         try:
-            if os.path.exists(temp_folder):  # Check if the folder exists before attempting to remove it
+            if os.path.exists(temp_folder):
                 shutil.rmtree(temp_folder)
         except Exception as e:
             logging.error(f"An error occurred during cleanup: {str(e)}")
