@@ -146,21 +146,31 @@ def gui_pdf_to_markdown():
 
     pdf_to_markdown_and_pdf(pdf_path, str(output_markdown_path))
 
+import shutil
+
 def main():
-    parser = argparse.ArgumentParser(description="Convert PDF to Markdown using AI-based text extraction.")
-    parser.add_argument("--gui", action="store_true", help="Use GUI mode")
-    parser.add_argument("pdf_path", nargs="?", default=None, help="Path to the input PDF file")
-    parser.add_argument("-o", "--output", help="Path for the output Markdown file")
-    
-    args = parser.parse_args()
-    
-    if args.gui:
-        gui_pdf_to_markdown()
-    elif args.pdf_path:
-        output_path = args.output or "output.md"
-        pdf_to_markdown_and_pdf(args.pdf_path, output_path)
-    else:
-        parser.print_help()
+    input_folder = "Input"
+    processed_folder = "Processed"
+
+    # Create folders if they don't exist
+    os.makedirs(input_folder, exist_ok=True)
+    os.makedirs(processed_folder, exist_ok=True)
+
+    for filename in os.listdir(input_folder):
+        if filename.endswith(".pdf"):
+            pdf_path = os.path.join(input_folder, filename)
+            output_markdown_path = os.path.join(input_folder, filename[:-4] + ".md")  # Use input folder for .md
+
+            try:
+                pdf_to_markdown_and_pdf(pdf_path, output_markdown_path)
+
+                # Move processed PDF to the processed folder
+                processed_pdf_path = os.path.join(processed_folder, filename)
+                shutil.move(pdf_path, processed_pdf_path)
+
+            except Exception as e:
+                print(f"An error occurred processing {filename}: {str(e)}")
+
 
 if __name__ == "__main__":
     main()
