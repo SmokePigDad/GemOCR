@@ -11,6 +11,12 @@ from tkinter import filedialog
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from dotenv import load_dotenv
+import shutil
+import tqdm
+from concurrent.futures import ProcessPoolExecutor
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
 # Configure logging
 logging.basicConfig(filename='gemocr.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,7 +32,25 @@ if api_key:
 else:
     raise ValueError("GOOGLE_API_KEY not found in .env file or environment variables.")
 
+# Rate limiting variables
+requests_made = 0
+last_request_time = 0
+requests_per_minute = 15
 
+def rate_limit():
+    global requests_made, last_request_time
+    current_time = time.time()
+    time_since_last_request = current_time - last_request_time
+
+    if requests_made >= requests_per_minute and time_since_last_request < 60:
+        sleep_time = 60 - time_since_last_request
+        print(f"Rate limit reached. Sleeping for {sleep_time:.2f} seconds.")
+        time.sleep(sleep_time)
+        requests_made = 0
+        last_request_time = time.time()
+    else:
+        requests_made += 1
+        last_request_time = current_time
 
 def convert_pdf_to_images(pdf_path, output_folder):
     """Convert PDF to images."""
@@ -46,6 +70,8 @@ def process_image(image_path):
     """Process a single image using Gemini API."""
     if not image_path:
         raise ValueError("image_path must be provided as a keyword argument.")
+
+    rate_limit() # Apply rate limiting before each API call
 
     try:
         myfile = genai.upload_file(image_path)
@@ -78,36 +104,11 @@ def process_image(image_path):
         logging.error(error_message)
         raise ValueError(error_message)
 
-def api_call_with_retry(func, max_retries=5, retry_exceptions=(Exception,), *args, **kwargs):
-    """Retry API call with exponential backoff."""
-    for attempt in range(max_retries):
-        try:
-            return func()
-        except Exception as e:
-            if attempt == max_retries - 1:
-                print(f"Max retries reached for {func.__name__}. Raising exception.") # More informative logging
-                raise
-            print(f"Retrying {func.__name__} after exception: {e}") # Log retry attempts
-            time.sleep(2 ** attempt * 0.5 + (attempt * 0.1)) # Add some jitter to avoid synchronized retries
-    """Retry API call with exponential backoff and jitter."""
-    for attempt in range(max_retries):
-        try:
-            return func(*args, **kwargs)
-        except retry_exceptions as e: # Catch specified exceptions
-            if attempt == max_retries - 1:
-                print(f"Max retries reached for {func.__name__}. Raising exception.") # More informative logging
-                raise
-            print(f"Retrying {func.__name__} after exception: {e}") # Log retry attempts
-            time.sleep(2 ** attempt * 0.5 + (attempt * 0.1)) # Add some jitter to avoid synchronized retries
-
 
 def compile_markdown(extracted_texts):
     """Compile extracted texts into a single Markdown string."""
     return "\n\n".join(extracted_texts)
 
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
 
 def create_pdf_with_text(texts, output_pdf_path):
     """Create a PDF with extracted text on corresponding pages, including word wrapping."""
@@ -178,9 +179,6 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
 
     return extracted_texts # Return extracted texts
 
-import shutil
-import tqdm
-from concurrent.futures import ProcessPoolExecutor
 
 def main():    
     input_folder = "Input"
