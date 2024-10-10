@@ -134,7 +134,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
             f.write(markdown_content)
 
         # Step 5: Create PDF with extracted text
-        output_pdf_path = output_markdown_path.rsplit('.', 1)[0] + '_extracted.pdf'
+        output_pdf_path = output_markdown_path.rsplit('.', 1)[0] + '.pdf'
         # Step 5: Create PDF with extracted text - MOVED to main function
 
         print(f"Conversion complete. Markdown saved to {output_markdown_path}")
@@ -172,7 +172,7 @@ def main():
             output_markdown_path = os.path.join("Output", output_filename + ".md")
 
             try:
-                output_pdf_path = os.path.join("Output", output_filename + "_extracted.pdf") # construct output PDF path
+                output_pdf_path = os.path.join("Output", output_filename + ".pdf") # construct output PDF path
                 extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)  # Pass pbar to update progress
                 create_pdf_with_text(extracted_texts, output_pdf_path) # create PDF in Output folder now that extracted_texts is available
                 processed_pdf_path = os.path.join(processed_folder, filename)
