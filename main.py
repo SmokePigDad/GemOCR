@@ -13,12 +13,13 @@ from reportlab.lib.pagesizes import letter
 from dotenv import load_dotenv
 import shutil
 import tqdm
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime, timedelta
 import random
+import threading
 
 # Configure logging
 logging.basicConfig(filename='gemocr.log', level=logging.DEBUG, 
@@ -36,36 +37,41 @@ else:
     raise ValueError("GOOGLE_API_KEY not found in .env file or environment variables.")
 
 # Rate limiting parameters
-requests_per_minute = 5  # Further reduced to be more conservative
-request_log = []  # Log of requests and their timestamps
+requests_per_minute = 60  # Adjusted to match Gemini API limit
+request_interval = 60 / requests_per_minute
+last_request_time = 0
+rate_limit_lock = threading.Lock()
 
 def rate_limit():
-    global request_log
-
-    current_time = datetime.now()
-    request_log = [req for req in request_log if current_time - req < timedelta(minutes=1)]  # remove old requests
-    if len(request_log) >= requests_per_minute:
-        sleep_time = max(60, (request_log[0] + timedelta(minutes=1) - current_time).total_seconds())
-        logging.info(f"Rate limit reached. Sleeping for {sleep_time:.2f} seconds.")
-        time.sleep(sleep_time)
-    request_log.append(current_time)
-    logging.debug(f"Request made at {current_time}. Total requests in last minute: {len(request_log)}")
+    global last_request_time
+    with rate_limit_lock:
+        current_time = time.time()
+        time_since_last_request = current_time - last_request_time
+        if time_since_last_request < request_interval:
+            sleep_time = request_interval - time_since_last_request
+            time.sleep(sleep_time)
+        last_request_time = time.time()
 
 def exponential_backoff(attempt):
     return min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
 
 
 def convert_pdf_to_images(pdf_path, output_folder):
-    """Convert PDF to images."""
+    """Convert PDF to images using a thread pool."""
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
     images = convert_from_path(pdf_path)
     image_paths = []
-    for i, image in enumerate(images):
+
+    def save_image(args):
+        i, image = args
         image_path = os.path.join(output_folder, f'page_{i+1}.png')
         image.save(image_path, 'PNG')
-        image_paths.append(image_path)
+        return image_path
+
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+        image_paths = list(executor.map(save_image, enumerate(images)))
 
     return image_paths
 
@@ -140,7 +146,7 @@ def create_pdf_with_text(texts, output_pdf_path):
     doc.build(story)
 
 
-def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar, thread_count=None):
+def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar):
     """Convert PDF to Markdown and create a new PDF with extracted text."""
     try:
         # Step 1: Convert PDF to images
@@ -150,15 +156,14 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         logging.info(f"Converting PDF {pdf_path} to {total_images} images")
 
         # Step 2: Process images and extract text
-        extracted_texts = []
-        if thread_count is None:
-            thread_count = min(os.cpu_count() or 1, 2)  # Reduced max threads to 2
-
-        for image_path in tqdm.tqdm(image_paths, desc="Processing Images", unit="image", leave=False):
-            result = process_image(image_path)
-            if result:
-                extracted_texts.append(result)
-            pbar.update(1 / total_images)  # Update progress bar
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = [executor.submit(process_image, image_path) for image_path in image_paths]
+            extracted_texts = []
+            for future in tqdm.tqdm(as_completed(futures), total=total_images, desc="Processing Images", unit="image", leave=False):
+                result = future.result()
+                if result:
+                    extracted_texts.append(result)
+                pbar.update(1 / total_images)  # Update progress bar
 
         # Step 3: Compile Markdown
         markdown_content = compile_markdown(extracted_texts)
@@ -208,7 +213,7 @@ def main():
             output_pdf_path = os.path.join(output_folder, output_filename + ".pdf")
 
             try:
-                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar, thread_count=4)  # Pass pbar and thread_count to update progress
+                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)  # Pass pbar to update progress
                 if extracted_texts: #Only create PDF if extracted_texts is not None
                     create_pdf_with_text(extracted_texts, output_pdf_path)  # create PDF in Output folder now that extracted_texts is available
                 processed_pdf_path = os.path.join(processed_folder, filename)
