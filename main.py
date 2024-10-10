@@ -13,14 +13,15 @@ from reportlab.lib.pagesizes import letter
 from dotenv import load_dotenv
 import shutil
 import tqdm
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime, timedelta
 
 # Configure logging
-logging.basicConfig(filename='gemocr.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename='gemocr.log', level=logging.DEBUG, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -34,19 +35,20 @@ else:
     raise ValueError("GOOGLE_API_KEY not found in .env file or environment variables.")
 
 # Rate limiting parameters
-requests_per_minute = 15
-request_log = [] # Log of requests and their timestamps
+requests_per_minute = 10  # Reduced from 15 to be more conservative
+request_log = []  # Log of requests and their timestamps
 
 def rate_limit():
     global request_log
 
     current_time = datetime.now()
-    request_log = [req for req in request_log if current_time - req < timedelta(minutes=1)] #remove old requests
+    request_log = [req for req in request_log if current_time - req < timedelta(minutes=1)]  # remove old requests
     if len(request_log) >= requests_per_minute:
-        sleep_time = (datetime.now() - request_log[0] + timedelta(minutes=1)).total_seconds()
-        print(f"Rate limit reached. Sleeping for {sleep_time:.2f} seconds.")
+        sleep_time = max(60, (request_log[0] + timedelta(minutes=1) - current_time).total_seconds())
+        logging.info(f"Rate limit reached. Sleeping for {sleep_time:.2f} seconds.")
         time.sleep(sleep_time)
     request_log.append(current_time)
+    logging.debug(f"Request made at {current_time}. Total requests in last minute: {len(request_log)}")
 
 
 def convert_pdf_to_images(pdf_path, output_folder):
@@ -74,15 +76,18 @@ def process_image(image_path):
     while retries < max_retries:
         rate_limit()
         try:
+            logging.info(f"Processing image: {image_path}")
             myfile = genai.upload_file(image_path)
             model = genai.GenerativeModel("gemini-1.5-flash-002")
             prompt = "Extract and transcribe all text from this image, preserving formatting where possible."
             response = model.generate_content([myfile, prompt])
             if hasattr(response, 'text') and response.text:
+                logging.info(f"Successfully processed image: {image_path}")
                 return response.text
             elif hasattr(response, 'parts') and response.parts:
                 extracted_text = ''.join(part.text for part in response.parts)
                 if extracted_text:
+                    logging.info(f"Successfully processed image: {image_path}")
                     return extracted_text
                 else:
                     logging.error(f"No text extracted from image {image_path}. Response: {response}")
@@ -97,34 +102,23 @@ def process_image(image_path):
                 raise ValueError(error_message)
 
         except genai.types.generation_types.BlockedPromptException as e:
-            print(f"Blocked prompt exception: {e}")
+            logging.error(f"Blocked prompt exception for {image_path}: {e}")
             if os.path.exists(image_path):
                 os.remove(image_path)
             raise
         except Exception as e:
-            if isinstance(e, genai.types.generation_types.GenerateContentResponse):
-                if e.prompt_feedback.block_reason:
-                    print(f"Content blocked. Reason: {e.prompt_feedback.block_reason}")
-                else:
-                    print(f"Error processing {image_path}: {e}")
-            else:
-                print(f"Error processing {image_path}: {e}")
+            logging.error(f"Error processing {image_path}: {e}")
             if os.path.exists(image_path):
                 os.remove(image_path)
             if retries < max_retries - 1:
                 sleep_time = 60  # Wait for 60 seconds before retrying
-                print(f"Retrying in {sleep_time} seconds...")
+                logging.info(f"Retrying {image_path} in {sleep_time} seconds...")
                 time.sleep(sleep_time)
                 retries += 1
                 continue
             raise  # Re-raise the error if max retries reached
 
-        except Exception as e:
-            print(f"Error processing {image_path}: {e}")
-            if os.path.exists(image_path):
-                os.remove(image_path)
-            raise
-    print(f"Failed to process {image_path} after multiple retries.")
+    logging.error(f"Failed to process {image_path} after multiple retries.")
     return None
 
 
@@ -153,16 +147,27 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         temp_folder = 'temp_images'
         image_paths = convert_pdf_to_images(pdf_path, temp_folder)
         total_images = len(image_paths)
+        logging.info(f"Converting PDF {pdf_path} to {total_images} images")
 
         # Step 2: Process images and extract text
-        # Use a ProcessPoolExecutor to process images concurrently
+        extracted_texts = []
         if thread_count is None:
-            thread_count = os.cpu_count() or 1  # Default to number of CPUs or 1 if not available
+            thread_count = min(os.cpu_count() or 1, 4)  # Default to number of CPUs or 1 if not available, max 4
 
-        with ProcessPoolExecutor(max_workers=thread_count) as executor:
-            results = list(tqdm.tqdm(executor.map(process_image, image_paths),
-                                      total=len(image_paths), desc="Processing Images", unit="image", leave=False))
-        extracted_texts = [text for text in results if text is not None]  # Filter out None results
+        try:
+            with ProcessPoolExecutor(max_workers=thread_count) as executor:
+                futures = [executor.submit(process_image, image_path) for image_path in image_paths]
+                for future in tqdm.tqdm(as_completed(futures), total=len(futures), desc="Processing Images", unit="image", leave=False):
+                    result = future.result()
+                    if result:
+                        extracted_texts.append(result)
+        except Exception as e:
+            logging.error(f"Error in concurrent processing: {e}. Falling back to sequential processing.")
+            extracted_texts = []
+            for image_path in tqdm.tqdm(image_paths, desc="Processing Images", unit="image", leave=False):
+                result = process_image(image_path)
+                if result:
+                    extracted_texts.append(result)
 
         # Step 3: Compile Markdown
         markdown_content = compile_markdown(extracted_texts)
@@ -174,12 +179,12 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         # Step 5: Create PDF with extracted text
         create_pdf_with_text(extracted_texts, output_pdf_path)
 
-        print(f"Conversion complete. Markdown saved to {output_markdown_path}")
+        logging.info(f"Conversion complete. Markdown saved to {output_markdown_path}")
         return extracted_texts
 
     except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        return None #Return None if an error occurs
+        logging.error(f"An error occurred: {str(e)}")
+        return None  # Return None if an error occurs
 
     finally:
         # Clean up temporary images
@@ -187,7 +192,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
             if os.path.exists(temp_folder):  # Check if the folder exists before attempting to remove it
                 shutil.rmtree(temp_folder)
         except Exception as e:
-            print(f"An error occurred during cleanup: {str(e)}")
+            logging.error(f"An error occurred during cleanup: {str(e)}")
 
 
 
