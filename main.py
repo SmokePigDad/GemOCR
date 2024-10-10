@@ -96,7 +96,7 @@ def process_image(image_path):
                 logging.error(error_message)
                 raise ValueError(error_message)
 
-        except genai.exception.GenerativeAIError as e:
+        except genai.error.GenerativeAIError as e: #Corrected import
             if e.code == 429:  # Rate limit exceeded
                 sleep_time = 60  # Wait for 60 seconds
                 print(f"Rate limit exceeded. Sleeping for {sleep_time} seconds.")
@@ -162,13 +162,14 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
             f.write(markdown_content)
 
         # Step 5: Create PDF with extracted text
-        #output_pdf_path = output_markdown_path.rsplit('.', 1)[0] + '.pdf' #This line is no longer needed
+        create_pdf_with_text(extracted_texts, output_pdf_path)
 
         print(f"Conversion complete. Markdown saved to {output_markdown_path}")
-
+        return extracted_texts
 
     except Exception as e:
         print(f"An error occurred: {str(e)}")
+        return None #Return None if an error occurs
 
     finally:
         # Clean up temporary images
@@ -178,7 +179,6 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         except Exception as e:
             print(f"An error occurred during cleanup: {str(e)}")
 
-    return extracted_texts  # Return extracted texts
 
 
 def main():
@@ -203,7 +203,8 @@ def main():
 
             try:
                 extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar, thread_count=4)  # Pass pbar and thread_count to update progress
-                create_pdf_with_text(extracted_texts, output_pdf_path)  # create PDF in Output folder now that extracted_texts is available
+                if extracted_texts: #Only create PDF if extracted_texts is not None
+                    create_pdf_with_text(extracted_texts, output_pdf_path)  # create PDF in Output folder now that extracted_texts is available
                 processed_pdf_path = os.path.join(processed_folder, filename)
                 shutil.move(pdf_path, processed_pdf_path)
 
