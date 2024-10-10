@@ -77,14 +77,14 @@ def api_call_with_retry(func, max_retries=3):
         except Exception as e:
             if attempt == max_retries - 1:
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(2 ** attempt * 0.5 + (attempt * 0.1)) # Add some jitter to avoid synchronized retries
 
-def process_multiple_images(image_paths):
-    """Process multiple images with error handling and retries."""
+def api_call_with_retry(func, max_retries=5, retry_exceptions=(Exception,)): # Increase max retries and specify retry exceptions
+    """Retry API call with exponential backoff and jitter."""
     results = []
     for path in image_paths:
         try:
-            text = api_call_with_retry(lambda: process_image(path))
+            text = api_call_with_retry(lambda: process_image(path), max_retries=5, retry_exceptions=(Exception,)) # Pass retry parameters
             if text: # Only append if text was extracted
                 results.append(text)
         except Exception as e:
@@ -144,10 +144,25 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         print(f"An error occurred: {str(e)}")
 
     finally:
-        # Clean up temporary images
-        for path in image_paths:
-            os.remove(path)
-        os.rmdir(temp_folder)
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+    finally:
+        # Clean up temporary images - moved inside finally block
+        if os.path.exists(temp_folder): # Check if the folder exists before attempting to remove it
+            for filename in os.listdir(temp_folder):
+                file_path = os.path.join(temp_folder, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    print(f"Failed to delete {file_path}. Reason: {e}")
+            try:
+                os.rmdir(temp_folder)
+            except OSError as e:
+                print(f"Error removing directory {temp_folder}: {e}")
+
     return extracted_texts # Return extracted texts
 
 import shutil
