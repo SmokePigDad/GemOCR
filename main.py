@@ -157,15 +157,7 @@ def main():
     if args.gui:
         gui_pdf_to_markdown()
     elif args.pdf_path:
-        output_path = args.output or "output.md"
-    
-    args = parser.parse_args()
-    
-    if args.gui:
-        gui_pdf_to_markdown()
-    elif args.pdf_path:
-        output_path = args.output or "output.md"
-        pdf_to_markdown(args.pdf_path, output_path)
+        pdf_to_markdown_and_pdf(args.pdf_path, output_path)
     else:
         parser.print_help()
 
