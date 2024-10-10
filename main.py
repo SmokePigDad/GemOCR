@@ -111,7 +111,7 @@ def create_pdf_with_text(texts, output_pdf_path):
 
     doc.build(story)
 
-def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar):
+def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar):
     """Convert PDF to Markdown and create a new PDF with extracted text."""
     try:
         # Step 1: Convert PDF to images
@@ -141,10 +141,10 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar):
 
         # Step 5: Create PDF with extracted text
         output_pdf_path = output_markdown_path.rsplit('.', 1)[0] + '_extracted.pdf'
-        create_pdf_with_text(extracted_texts, output_pdf_path)
+        # Step 5: Create PDF with extracted text - MOVED to main function
 
         print(f"Conversion complete. Markdown saved to {output_markdown_path}")
-        print(f"Extracted text PDF saved to {output_pdf_path}")
+
 
     except Exception as e:
         print(f"An error occurred: {str(e)}")
@@ -154,6 +154,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar):
         for path in image_paths:
             os.remove(path)
         os.rmdir(temp_folder)
+    return extracted_texts # Return extracted texts
 
 import shutil
 import tqdm
@@ -176,10 +177,10 @@ def main():
             output_markdown_path = os.path.join("Output", output_filename + ".md")
 
             try:
-                pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar)  # Pass pbar to update progress
-                processed_pdf_path = os.path.join(processed_folder, filename)
                 output_pdf_path = os.path.join("Output", output_filename + "_extracted.pdf") # construct output PDF path
-                create_pdf_with_text(extracted_texts, output_pdf_path) # create PDF in Output folder
+                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)  # Pass pbar to update progress
+                create_pdf_with_text(extracted_texts, output_pdf_path) # create PDF in Output folder now that extracted_texts is available
+                processed_pdf_path = os.path.join(processed_folder, filename)
                 shutil.move(pdf_path, processed_pdf_path)
 
 
