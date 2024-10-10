@@ -44,7 +44,6 @@ def convert_pdf_to_images(pdf_path, output_folder):
 
 def process_image(image_path):
     """Process a single image using Gemini API."""
-    image_path = kwargs.get("image_path") # Retrieve image_path from kwargs
     if not image_path:
         raise ValueError("image_path must be provided as a keyword argument.")
 
