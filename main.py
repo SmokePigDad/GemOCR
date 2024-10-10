@@ -20,6 +20,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime, timedelta
 import random
 import threading
+import requests
 
 # Configure logging
 logging.basicConfig(filename='gemocr.log', level=logging.DEBUG, 
@@ -55,6 +56,9 @@ def rate_limit():
 def exponential_backoff(attempt):
     return min(300, (2 ** attempt) + (random.randint(0, 1000) / 1000))
 
+def is_rate_limit_error(e):
+    return isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429
+
 
 def convert_pdf_to_images(pdf_path, output_folder):
     """Convert PDF to images using a thread pool."""
@@ -83,8 +87,8 @@ def process_image(image_path):
 
     max_retries = 5
     for attempt in range(max_retries):
-        rate_limit()
         try:
+            rate_limit()
             logging.info(f"Processing image: {image_path}")
             myfile = genai.upload_file(image_path)
             model = genai.GenerativeModel("gemini-1.5-flash-002")
@@ -115,8 +119,22 @@ def process_image(image_path):
             if os.path.exists(image_path):
                 os.remove(image_path)
             raise
+        except requests.exceptions.RequestException as e:
+            if is_rate_limit_error(e):
+                sleep_time = exponential_backoff(attempt)
+                logging.warning(f"Rate limit reached. Retrying {image_path} in {sleep_time:.2f} seconds...")
+                time.sleep(sleep_time)
+            else:
+                logging.error(f"Error processing {image_path}: {e}")
+                if attempt < max_retries - 1:
+                    sleep_time = exponential_backoff(attempt)
+                    logging.info(f"Retrying {image_path} in {sleep_time:.2f} seconds...")
+                    time.sleep(sleep_time)
+                else:
+                    logging.error(f"Failed to process {image_path} after {max_retries} attempts.")
+                    return None
         except Exception as e:
-            logging.error(f"Error processing {image_path}: {e}")
+            logging.error(f"Unexpected error processing {image_path}: {e}")
             if attempt < max_retries - 1:
                 sleep_time = exponential_backoff(attempt)
                 logging.info(f"Retrying {image_path} in {sleep_time:.2f} seconds...")
