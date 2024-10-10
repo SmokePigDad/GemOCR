@@ -18,6 +18,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import datetime, timedelta
+import random
 
 # Configure logging
 logging.basicConfig(filename='gemocr.log', level=logging.DEBUG, 
