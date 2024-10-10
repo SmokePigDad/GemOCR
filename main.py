@@ -155,24 +155,25 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         print(f"An error occurred: {str(e)}")
 
     finally:
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
     finally:
         # Clean up temporary images
-        if os.path.exists(temp_folder): # Check if the folder exists before attempting to remove it
-            for filename in os.listdir(temp_folder):
-                file_path = os.path.join(temp_folder, filename)
+        try:
+            if os.path.exists(temp_folder): # Check if the folder exists before attempting to remove it
+                for filename in os.listdir(temp_folder):
+                    file_path = os.path.join(temp_folder, filename)
+                    try:
+                        if os.path.isfile(file_path) or os.path.islink(file_path):
+                            os.unlink(file_path)
+                        elif os.path.isdir(file_path):
+                            shutil.rmtree(file_path)
+                    except Exception as e:
+                        print(f"Failed to delete {file_path}. Reason: {e}")
                 try:
-                    if os.path.isfile(file_path) or os.path.islink(file_path):
-                        os.unlink(file_path)
-                    elif os.path.isdir(file_path):
-                        shutil.rmtree(file_path)
-                except Exception as e:
-                    print(f"Failed to delete {file_path}. Reason: {e}")
-            try:
-                os.rmdir(temp_folder)
-            except OSError as e:
-                print(f"Error removing directory {temp_folder}: {e}")
+                    os.rmdir(temp_folder)
+                except OSError as e:
+                    print(f"Error removing directory {temp_folder}: {e}")
+        except Exception as e:
+            print(f"An error occurred during cleanup: {str(e)}")
 
     return extracted_texts # Return extracted texts
 
