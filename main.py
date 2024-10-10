@@ -96,18 +96,28 @@ def process_image(image_path):
                 logging.error(error_message)
                 raise ValueError(error_message)
 
-        except genai.error.GenerativeAIError as e: #Corrected import
-            if e.code == 429:  # Rate limit exceeded
-                sleep_time = 60  # Wait for 60 seconds
-                print(f"Rate limit exceeded. Sleeping for {sleep_time} seconds.")
-                time.sleep(sleep_time)
-                retries += 1
-                continue  # Retry the request
+        except genai.types.generation_types.BlockedPromptException as e:
+            print(f"Blocked prompt exception: {e}")
+            if os.path.exists(image_path):
+                os.remove(image_path)
+            raise
+        except Exception as e:
+            if isinstance(e, genai.types.generation_types.GenerateContentResponse):
+                if e.prompt_feedback.block_reason:
+                    print(f"Content blocked. Reason: {e.prompt_feedback.block_reason}")
+                else:
+                    print(f"Error processing {image_path}: {e}")
             else:
                 print(f"Error processing {image_path}: {e}")
-                if os.path.exists(image_path):
-                    os.remove(image_path)
-                raise  # Re-raise other errors
+            if os.path.exists(image_path):
+                os.remove(image_path)
+            if retries < max_retries - 1:
+                sleep_time = 60  # Wait for 60 seconds before retrying
+                print(f"Retrying in {sleep_time} seconds...")
+                time.sleep(sleep_time)
+                retries += 1
+                continue
+            raise  # Re-raise the error if max retries reached
 
         except Exception as e:
             print(f"Error processing {image_path}: {e}")
