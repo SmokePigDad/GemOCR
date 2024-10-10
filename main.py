@@ -122,7 +122,7 @@ def create_pdf_with_text(texts, output_pdf_path):
 
     doc.build(story)
 
-def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar):
+def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar, thread_count=None):
     """Convert PDF to Markdown and create a new PDF with extracted text."""
     try:
         # Step 1: Convert PDF to images
@@ -131,9 +131,12 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         total_images = len(image_paths)
 
         # Step 2: Process images and extract text
-        # Use a ThreadPoolExecutor to process images concurrently
-        with ThreadPoolExecutor() as executor:
-            results = list(tqdm.tqdm(executor.map(lambda path: api_call_with_retry(process_image, image_path=path), image_paths), # Use lambda to pass image_path
+        # Use a ProcessPoolExecutor to process images concurrently
+        if thread_count is None:
+            thread_count = os.cpu_count() or 1  # Default to number of CPUs or 1 if not available
+
+        with ProcessPoolExecutor(max_workers=thread_count) as executor:
+            results = list(tqdm.tqdm(executor.map(process_image, image_paths), # Directly map process_image
                                       total=len(image_paths), desc="Processing Images", unit="image", leave=False))
         extracted_texts = [text for text in results if text is not None] # Filter out None results
 
@@ -179,7 +182,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
 
 import shutil
 import tqdm
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 def main():    
     input_folder = "Input"
@@ -200,7 +203,7 @@ def main():
 
             try:
                 output_pdf_path = os.path.join("Output", output_filename + ".pdf") # construct output PDF path
-                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)  # Pass pbar to update progress
+                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar, thread_count=4)  # Pass pbar and thread_count to update progress
                 create_pdf_with_text(extracted_texts, output_pdf_path) # create PDF in Output folder now that extracted_texts is available
                 processed_pdf_path = os.path.join(processed_folder, filename)
                 shutil.move(pdf_path, processed_pdf_path)
