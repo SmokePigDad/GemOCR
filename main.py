@@ -23,8 +23,12 @@ import threading
 import requests
 
 # Configure logging
-logging.basicConfig(filename='gemocr.log', level=logging.DEBUG, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler('gemocr.log'),
+                        logging.StreamHandler()
+                    ])
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -231,6 +235,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
 
 
 def main():
+    logging.info("Script started")
     input_folder = "Input"
     processed_folder = "Processed"
     output_folder = "Output"
