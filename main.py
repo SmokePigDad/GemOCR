@@ -223,6 +223,13 @@ def main():
     pdf_files = [f for f in os.listdir(input_folder) if f.endswith(".pdf")]
     total_files = len(pdf_files)
 
+    logging.info(f"Found {total_files} PDF files in the input folder.")
+
+    if total_files == 0:
+        logging.warning("No PDF files found in the input folder. Exiting.")
+        print("No PDF files found in the input folder. Please add PDF files and run the script again.")
+        return
+
     with tqdm.tqdm(total=total_files, desc="Processing PDFs", unit="file") as pbar:
         for filename in pdf_files:
             pdf_path = os.path.join(input_folder, filename)
@@ -230,14 +237,17 @@ def main():
             output_markdown_path = os.path.join(output_folder, output_filename + ".md")
             output_pdf_path = os.path.join(output_folder, output_filename + ".pdf")
 
+            logging.info(f"Starting to process {filename}")
             try:
-                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)  # Pass pbar to update progress
-                if extracted_texts: #Only create PDF if extracted_texts is not None
-                    create_pdf_with_text(extracted_texts, output_pdf_path)  # create PDF in Output folder now that extracted_texts is available
-                processed_pdf_path = os.path.join(processed_folder, filename)
-                shutil.move(pdf_path, processed_pdf_path)
-                logging.info(f"Successfully processed {filename}")
-
+                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)
+                if extracted_texts:
+                    create_pdf_with_text(extracted_texts, output_pdf_path)
+                    processed_pdf_path = os.path.join(processed_folder, filename)
+                    shutil.move(pdf_path, processed_pdf_path)
+                    logging.info(f"Successfully processed {filename}")
+                else:
+                    logging.error(f"Failed to extract text from {filename}")
+                    print(f"Failed to extract text from {filename}. Check the log file for details.")
             except Exception as e:
                 logging.exception(f"An error occurred processing {filename}")
                 print(f"An error occurred processing {filename}. Check the log file for details.")
@@ -245,6 +255,7 @@ def main():
                 pbar.update(1)
 
     logging.info("Processing completed. Check the log file for details.")
+    print("Processing completed. Check the log file for details.")
 
 
 if __name__ == "__main__":
