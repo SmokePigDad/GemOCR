@@ -79,7 +79,7 @@ def process_image(image_path):
         logging.error(error_message)
         raise ValueError(error_message)
 
-def api_call_with_retry(func, max_retries=3):
+def api_call_with_retry(func, max_retries=5, retry_exceptions=(Exception,), *args, **kwargs):
     """Retry API call with exponential backoff."""
     for attempt in range(max_retries):
         try:
@@ -90,14 +90,17 @@ def api_call_with_retry(func, max_retries=3):
                 raise
             print(f"Retrying {func.__name__} after exception: {e}") # Log retry attempts
             time.sleep(2 ** attempt * 0.5 + (attempt * 0.1)) # Add some jitter to avoid synchronized retries
-
-def api_call_with_retry(func, max_retries=5, retry_exceptions=(Exception,), *args, **kwargs): # Add *args and **kwargs
     """Retry API call with exponential backoff and jitter."""
-    for path in image_paths:
-        text = api_call_with_retry(process_image, max_retries=5, retry_exceptions=(Exception,), image_path=path) # Pass path as keyword argument
-        if text: # Only append if text was extracted
-            results.append(text)
-    return results
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except retry_exceptions as e: # Catch specified exceptions
+            if attempt == max_retries - 1:
+                print(f"Max retries reached for {func.__name__}. Raising exception.") # More informative logging
+                raise
+            print(f"Retrying {func.__name__} after exception: {e}") # Log retry attempts
+            time.sleep(2 ** attempt * 0.5 + (attempt * 0.1)) # Add some jitter to avoid synchronized retries
+
 
 def compile_markdown(extracted_texts):
     """Compile extracted texts into a single Markdown string."""
@@ -130,7 +133,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
         # Step 2: Process images and extract text
         # Use a ThreadPoolExecutor to process images concurrently
         with ThreadPoolExecutor() as executor:
-            results = list(tqdm.tqdm(executor.map(api_call_with_retry, [lambda: process_image(path) for path in image_paths]),
+            results = list(tqdm.tqdm(executor.map(lambda path: api_call_with_retry(process_image, image_path=path), image_paths), # Use lambda to pass image_path
                                       total=len(image_paths), desc="Processing Images", unit="image", leave=False))
         extracted_texts = [text for text in results if text is not None] # Filter out None results
 
@@ -155,7 +158,7 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
     except Exception as e:
         print(f"An error occurred: {str(e)}")
     finally:
-        # Clean up temporary images - moved inside finally block
+        # Clean up temporary images
         if os.path.exists(temp_folder): # Check if the folder exists before attempting to remove it
             for filename in os.listdir(temp_folder):
                 file_path = os.path.join(temp_folder, filename)
@@ -177,7 +180,7 @@ import shutil
 import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
-def main():
+def main():    
     input_folder = "Input"
     processed_folder = "Processed"
 
