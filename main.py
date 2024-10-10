@@ -155,25 +155,6 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar):
             os.remove(path)
         os.rmdir(temp_folder)
 
-def gui_pdf_to_markdown():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-
-    pdf_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
-    if not pdf_path:
-        print("No file selected. Exiting.")
-        return
-
-    # Create 'Output' folder if it doesn't exist
-    output_folder = Path(os.path.dirname(os.path.abspath(__file__))) / "Output"
-    output_folder.mkdir(exist_ok=True)
-
-    # Generate output markdown filename
-    pdf_name = Path(pdf_path).stem
-    output_markdown_path = output_folder / f"{pdf_name}.md"
-
-    pdf_to_markdown_and_pdf(pdf_path, str(output_markdown_path))
-
 import shutil
 import tqdm
 
@@ -191,13 +172,16 @@ def main():
     with tqdm.tqdm(total=total_files, desc="Processing PDFs", unit="file") as pbar:
         for filename in pdf_files:
             pdf_path = os.path.join(input_folder, filename)
-            output_markdown_path = os.path.join(input_folder, filename[:-4] + ".md")
+            output_filename = filename[:-4] # remove '.pdf'
+            output_markdown_path = os.path.join("Output", output_filename + ".md")
 
             try:
                 pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, pbar)  # Pass pbar to update progress
-
                 processed_pdf_path = os.path.join(processed_folder, filename)
+                output_pdf_path = os.path.join("Output", output_filename + "_extracted.pdf") # construct output PDF path
+                create_pdf_with_text(extracted_texts, output_pdf_path) # create PDF in Output folder
                 shutil.move(pdf_path, processed_pdf_path)
+
 
             except Exception as e:
                 print(f"An error occurred processing {filename}: {str(e)}")
