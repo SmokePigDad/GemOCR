@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from pathlib import Path
 import google.generativeai as genai
 from pdf2image import convert_from_path
@@ -11,6 +12,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from dotenv import load_dotenv
 
+# Configure logging
+logging.basicConfig(filename='gemocr.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+
 # Load environment variables from .env file if it exists
 load_dotenv()
 
@@ -21,6 +25,7 @@ if api_key:
     genai.configure(api_key=api_key)
 else:
     raise ValueError("GOOGLE_API_KEY not found in .env file or environment variables.")
+
 
 
 def convert_pdf_to_images(pdf_path, output_folder):
@@ -42,16 +47,27 @@ def process_image(image_path):
     myfile = genai.upload_file(image_path)
     model = genai.GenerativeModel("gemini-1.5-flash-002")
     prompt = "Extract and transcribe all text from this image, preserving formatting where possible."
-    response = model.generate_content([myfile, prompt])
+    response = model.generate_content([myfile, prompt])    
     
     # Check if the response has a 'text' attribute
-    if hasattr(response, 'text'):
+    if hasattr(response, 'text') and response.text: # Check for text and if it's not empty
         return response.text
-    # If 'text' is not available, try to access the content directly
-    elif hasattr(response, 'parts'):
-        return ''.join(part.text for part in response.parts)
+    # If 'text' is not available or empty, try to access the content directly
+    elif hasattr(response, 'parts') and response.parts: # Check for parts and if it's not empty
+        extracted_text = ''.join(part.text for part in response.parts)
+        if extracted_text: # Check if extracted text is not empty
+            return extracted_text
+        else:
+            logging.error(f"No text extracted from image {image_path}. Response: {response}")
+            return None # Return None to indicate failure
     else:
-        raise ValueError("Unexpected response format from Gemini API")
+        error_message = f"Unexpected response format from Gemini API: {response}"
+        if hasattr(response, 'finish_reason'):
+            error_message += f", finish_reason: {response.finish_reason}"
+        if hasattr(response, 'prompt_feedback'):
+            error_message += f", prompt_feedback: {response.prompt_feedback}"
+        logging.error(error_message)
+        raise ValueError(error_message)
 
 def api_call_with_retry(func, max_retries=3):
     """Retry API call with exponential backoff."""
@@ -69,7 +85,8 @@ def process_multiple_images(image_paths):
     for path in image_paths:
         try:
             text = api_call_with_retry(lambda: process_image(path))
-            results.append(text)
+            if text: # Only append if text was extracted
+                results.append(text)
         except Exception as e:
             print(f"Error processing {path}: {str(e)}")
     return results
