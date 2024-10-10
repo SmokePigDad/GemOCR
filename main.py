@@ -9,9 +9,19 @@ import tkinter as tk
 from tkinter import filedialog
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
+from dotenv import load_dotenv
 
-# Configure the Gemini API
-genai.configure(api_key="AIzaSyD0cNS9rxp0DVrqaXdVdSgiAWRHcbcmZK0")
+# Load environment variables from .env file if it exists
+load_dotenv()
+
+# Try to get the API key from the environment, first from .env then from system environment variables
+api_key = os.getenv("GOOGLE_API_KEY")
+
+if api_key:
+    genai.configure(api_key=api_key)
+else:
+    raise ValueError("GOOGLE_API_KEY not found in .env file or environment variables.")
+
 
 def convert_pdf_to_images(pdf_path, output_folder):
     """Convert PDF to images."""
