@@ -23,6 +23,7 @@ import threading
 import requests
 import ssl
 import urllib3
+import socket
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -34,6 +35,11 @@ logging.basicConfig(level=logging.DEBUG,
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Create a custom SSL context
+custom_ssl_context = ssl.create_default_context()
+custom_ssl_context.check_hostname = False
+custom_ssl_context.verify_mode = ssl.CERT_NONE
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -100,11 +106,14 @@ def process_image(image_path):
             rate_limit()
             logging.info(f"Processing image: {image_path}")
             
-            # Disable SSL verification for file upload
+            # Use custom SSL context for file upload
             original_context = ssl._create_default_https_context
-            ssl._create_default_https_context = ssl._create_unverified_context
+            ssl._create_default_https_context = lambda: custom_ssl_context
             try:
                 myfile = genai.upload_file(image_path)
+            except (ssl.SSLError, socket.error) as e:
+                logging.error(f"SSL or socket error during file upload for {image_path}: {e}")
+                raise
             finally:
                 ssl._create_default_https_context = original_context
 
