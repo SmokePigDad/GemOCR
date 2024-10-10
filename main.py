@@ -168,52 +168,63 @@ def pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pba
     """Convert PDF to Markdown and create a new PDF with extracted text."""
     temp_folder = 'temp_images'
     try:
+        logging.info(f"Starting conversion of {pdf_path}")
+        
         # Step 1: Convert PDF to images
+        logging.info(f"Converting PDF to images: {pdf_path}")
         image_paths = convert_pdf_to_images(pdf_path, temp_folder)
         total_images = len(image_paths)
-        logging.info(f"Converting PDF {pdf_path} to {total_images} images")
+        logging.info(f"Converted PDF {pdf_path} to {total_images} images")
 
         # Step 2: Process images and extract text
+        logging.info(f"Processing {total_images} images")
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             futures = [executor.submit(process_image, image_path) for image_path in image_paths]
             extracted_texts = []
-            for future in tqdm.tqdm(as_completed(futures), total=total_images, desc="Processing Images", unit="image", leave=False):
+            for i, future in enumerate(tqdm.tqdm(as_completed(futures), total=total_images, desc="Processing Images", unit="image", leave=False)):
                 try:
                     result = future.result(timeout=360)  # 6 minutes timeout
                     if result:
                         extracted_texts.append(result)
+                    else:
+                        logging.warning(f"No text extracted from image {i+1}")
                     pbar.update(1 / total_images)  # Update progress bar
                 except TimeoutError:
-                    logging.error(f"Timeout occurred while processing an image.")
+                    logging.error(f"Timeout occurred while processing image {i+1}")
                 except Exception as e:
-                    logging.error(f"Error processing an image: {str(e)}")
+                    logging.error(f"Error processing image {i+1}: {str(e)}")
 
         if not extracted_texts:
             logging.error("No text was extracted from any of the images.")
             return None
 
         # Step 3: Compile Markdown
+        logging.info("Compiling extracted text into Markdown")
         markdown_content = compile_markdown(extracted_texts)
 
         # Step 4: Save Markdown file
+        logging.info(f"Saving Markdown to {output_markdown_path}")
         with open(output_markdown_path, 'w', encoding='utf-8') as f:
             f.write(markdown_content)
 
         # Step 5: Create PDF with extracted text
+        logging.info(f"Creating PDF with extracted text: {output_pdf_path}")
         create_pdf_with_text(extracted_texts, output_pdf_path)
 
         logging.info(f"Conversion complete. Markdown saved to {output_markdown_path}")
         return extracted_texts
 
     except Exception as e:
-        logging.error(f"An error occurred during PDF processing: {str(e)}")
+        logging.exception(f"An error occurred during PDF processing: {str(e)}")
         return None
 
     finally:
         # Clean up temporary images
+        logging.info("Cleaning up temporary images")
         try:
             if os.path.exists(temp_folder):
                 shutil.rmtree(temp_folder)
+            logging.info("Temporary images cleaned up successfully")
         except Exception as e:
             logging.error(f"An error occurred during cleanup: {str(e)}")
 
@@ -239,33 +250,36 @@ def main():
         print("No PDF files found in the input folder. Please add PDF files and run the script again.")
         return
 
-    with tqdm.tqdm(total=total_files, desc="Processing PDFs", unit="file") as pbar:
-        for filename in pdf_files:
-            pdf_path = os.path.join(input_folder, filename)
-            output_filename = filename[:-4]  # remove '.pdf'
-            output_markdown_path = os.path.join(output_folder, output_filename + ".md")
-            output_pdf_path = os.path.join(output_folder, output_filename + ".pdf")
+    try:
+        with tqdm.tqdm(total=total_files, desc="Processing PDFs", unit="file") as pbar:
+            for filename in pdf_files:
+                pdf_path = os.path.join(input_folder, filename)
+                output_filename = filename[:-4]  # remove '.pdf'
+                output_markdown_path = os.path.join(output_folder, output_filename + ".md")
+                output_pdf_path = os.path.join(output_folder, output_filename + ".pdf")
 
-            logging.info(f"Starting to process {filename}")
-            try:
-                extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)
-                if extracted_texts:
-                    create_pdf_with_text(extracted_texts, output_pdf_path)
-                    processed_pdf_path = os.path.join(processed_folder, filename)
-                    shutil.move(pdf_path, processed_pdf_path)
-                    logging.info(f"Successfully processed {filename}")
-                else:
-                    logging.error(f"Failed to extract text from {filename}")
-                    print(f"Failed to extract text from {filename}. Check the log file for details.")
-            except Exception as e:
-                logging.exception(f"An error occurred processing {filename}")
-                print(f"An error occurred processing {filename}. Check the log file for details.")
-            finally:
-                pbar.update(1)
+                logging.info(f"Starting to process {filename}")
+                try:
+                    extracted_texts = pdf_to_markdown_and_pdf(pdf_path, output_markdown_path, output_pdf_path, pbar)
+                    if extracted_texts:
+                        create_pdf_with_text(extracted_texts, output_pdf_path)
+                        processed_pdf_path = os.path.join(processed_folder, filename)
+                        shutil.move(pdf_path, processed_pdf_path)
+                        logging.info(f"Successfully processed {filename}")
+                    else:
+                        logging.error(f"Failed to extract text from {filename}")
+                        print(f"Failed to extract text from {filename}. Check the log file for details.")
+                except Exception as e:
+                    logging.exception(f"An error occurred processing {filename}: {str(e)}")
+                    print(f"An error occurred processing {filename}. Check the log file for details.")
+                finally:
+                    pbar.update(1)
 
-    logging.info("Processing completed. Check the log file for details.")
-    print("Processing completed. Check the log file for details.")
-
+        logging.info("Processing completed. Check the log file for details.")
+        print("Processing completed. Check the log file for details.")
+    except Exception as e:
+        logging.critical(f"A critical error occurred during execution: {str(e)}")
+        print(f"A critical error occurred. Please check the log file for details.")
 
 if __name__ == "__main__":
     main()
