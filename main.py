@@ -22,6 +22,7 @@ import random
 import threading
 import requests
 import ssl
+import urllib3
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -30,6 +31,9 @@ logging.basicConfig(level=logging.DEBUG,
                         logging.FileHandler('gemocr.log'),
                         logging.StreamHandler()
                     ])
+
+# Disable SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -95,10 +99,23 @@ def process_image(image_path):
         try:
             rate_limit()
             logging.info(f"Processing image: {image_path}")
-            myfile = genai.upload_file(image_path)
+            
+            # Disable SSL verification for file upload
+            original_context = ssl._create_default_https_context
+            ssl._create_default_https_context = ssl._create_unverified_context
+            try:
+                myfile = genai.upload_file(image_path)
+            finally:
+                ssl._create_default_https_context = original_context
+
             model = genai.GenerativeModel("gemini-1.5-flash-002")
             prompt = "Extract and transcribe all text from this image, preserving formatting where possible."
-            response = model.generate_content([myfile, prompt])
+            
+            # Disable SSL verification for content generation
+            with requests.Session() as session:
+                session.verify = False
+                response = model.generate_content([myfile, prompt], timeout=300)
+
             if hasattr(response, 'text') and response.text:
                 logging.info(f"Successfully processed image: {image_path}")
                 return response.text
