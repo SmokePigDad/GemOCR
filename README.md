@@ -1,6 +1,6 @@
 <img src="./image.png" alt="GemOCR" width="25%">
 
-*GemOCR*
+**GemOCR**
 
 GemOCR is your ultimate toolkit for reviving old RPG sourcebooks, blending the power of Optical Character Recognition (OCR) with cutting-edge AI. Standard OCR tools struggle with accuracy, but GemOCR takes it to the next level, using AI models to clean up the chaos and deliver pristine, digital text from old manuals. Motivation to make this must go to GilgameshofUT, creator of AI Dungeon Delver (https://github.com/GilgameshofUT/AIDungeon-Delver), this project gives those forgotten sourcebooks a new lease of life so you can shove them into that project.  The World of Darkness of my youth beckons!  
 
