@@ -1,4 +1,4 @@
-<img src="https://imgur.com/a/j1k5PVw" width="100" height="100"> 
+<blockquote class="imgur-embed-pub" lang="en" data-id="a/NIB59Kx" data-context="false" ><a href="//imgur.com/a/NIB59Kx"></a></blockquote><script async src="//s.imgur.com/min/embed.js" charset="utf-8"></script>
 
 *GemOCR*
 
