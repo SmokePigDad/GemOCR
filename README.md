@@ -1,4 +1,4 @@
-<img src="./image.png" alt="GemOCR" width="50%">
+<img src="./image.png" alt="GemOCR" width="25%">
 
 *GemOCR*
 
