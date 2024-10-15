@@ -33,7 +33,6 @@ COHERE_API_KEY=your_cohere_api_key
 Run the Project: Just fire it up with:
 
 ```bash
-Copy code
 python main.py
 ```
 
